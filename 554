@@ -1,0 +1,867 @@
+
+  METHOD get_id_sap_for_buy_book.                          "книга покупок 05.04.2021
+
+    CHECK ms_grid_1-data IS NOT INITIAL .
+
+    TYPES: BEGIN OF lt_t_ztea_docpr_m,
+             arc_doc_id TYPE ztea_docpr_m-arc_doc_id,
+             ar_object  TYPE ztea_docpr_m-ar_object,
+             object_id  TYPE ztea_docpr_m-object_id,
+             sap_object TYPE ztea_docpr_m-sap_object,
+*             title      TYPE ztea_dochr-title,
+           END OF lt_t_ztea_docpr_m.
+
+    TYPES: BEGIN OF lt_t_toa01,
+             object_id  TYPE toa01-object_id,
+             arc_doc_id TYPE toa01-arc_doc_id,
+             ar_object  TYPE toa01-ar_object,
+             sap_object TYPE toa01-sap_object,
+           END OF lt_t_toa01.
+
+    TYPES: BEGIN OF lt_t_bkpf,
+             belnr TYPE bkpf-belnr,
+             bukrs TYPE bkpf-bukrs,
+             gjahr TYPE bkpf-gjahr,
+             awkey TYPE bkpf-awkey,
+           END OF lt_t_bkpf.
+
+    TYPES: BEGIN OF lt_t_bse_clr,
+             bukrs_clr TYPE bse_clr-bukrs_clr,
+             belnr_clr TYPE bse_clr-belnr_clr,
+             gjahr_clr TYPE bse_clr-gjahr_clr,
+             bukrs     TYPE bse_clr-bukrs,
+             belnr     TYPE bse_clr-belnr,
+             gjahr     TYPE bse_clr-gjahr,
+           END OF lt_t_bse_clr.
+    TYPES: BEGIN OF lt_t_ztea_dochr,
+             sap_object TYPE ztea_dochr-sap_object,
+             ar_object  TYPE ztea_dochr-ar_object,
+             title      TYPE ztea_dochr-title,
+           END OF lt_t_ztea_dochr.
+
+    DATA :
+      lt_ztea_docpr_m1     TYPE TABLE OF lt_t_ztea_docpr_m,
+      lt_ztea_docpr_m1_fae TYPE TABLE OF lt_t_ztea_docpr_m,
+*      lt_ztea_dochr_fae    TYPE TABLE OF lt_t_ztea_dochr,
+      lt_ztea_dochr        TYPE SORTED TABLE OF lt_t_ztea_dochr WITH UNIQUE KEY primary_key
+                             COMPONENTS sap_object ar_object,
+      lt_bkpf              TYPE SORTED TABLE OF lt_t_bkpf WITH UNIQUE KEY primary_key
+                             COMPONENTS belnr bukrs gjahr,
+      lt_bkpf_fae          TYPE TABLE OF lt_t_bkpf ,
+      lt_toa01             TYPE TABLE OF lt_t_toa01 ,
+      lt_toa01_fae         TYPE TABLE OF lt_t_toa01 ,
+      lt_bse_clr_fae       TYPE TABLE OF lt_t_bse_clr,
+      lt_bse_clr           TYPE TABLE OF lt_t_bse_clr,
+      lv_sep               TYPE c LENGTH 1 ,
+      lv_poln1             TYPE i ,
+      lv_poln2             TYPE i ,
+      lv_count             TYPE i ,
+      lt_full_set          TYPE SORTED TABLE OF ztfi_full_set WITH UNIQUE KEY primary_key
+                           COMPONENTS mandt
+                                      book
+                                      kbo
+                                      ar_object,
+      lv_tot_pos           TYPE sy-tabix,
+      lv_cur_pos           TYPE sy-tabix,
+      lv_rbkp_belnr        TYPE rbkp-belnr,
+      lr_object_id         TYPE RANGE OF ztea_docpr_m-object_id,
+      lr_ar_object         TYPE RANGE OF ztea_dochr-ar_object,
+      lr_sap_object        TYPE RANGE OF ztea_dochr-sap_object,
+      lv_arc_doc_id        TYPE toa01-arc_doc_id,
+      lv_object_id         TYPE toa01-object_id,
+      lv_ar_object         TYPE toa01-ar_object.
+
+    SELECT *
+      FROM ztfi_full_set
+      INTO TABLE lt_full_set
+      WHERE book = 'P'.
+
+    LOOP AT ms_grid_1-data INTO DATA(ls_data) .
+
+      CASE ls_data-belnr_orig_inv+0(2).
+        WHEN '11'.
+*          документы  выравниваний
+          APPEND VALUE #( bukrs_clr = ls_data-bukrs  belnr_clr = ls_data-belnr_orig_inv gjahr_clr =  ls_data-gjahr_orig_inv  ) TO lt_bse_clr_fae .
+*        WHEN '14'.
+        WHEN '42'.
+          IF ls_data-belnr_up+0(2) = '51'.
+            APPEND VALUE #( object_id =  ls_data-belnr_up && ls_data-gjahr_up        ) TO lt_ztea_docpr_m1_fae .
+          ENDIF.
+        WHEN OTHERS.
+          APPEND VALUE #( object_id = ls_data-bukrs    && ls_data-belnr_orig_inv && ls_data-gjahr_orig_inv  ) TO lt_ztea_docpr_m1_fae .
+          APPEND VALUE #( object_id = ls_data-bukrs    && ls_data-belnr_inv      && ls_data-gjahr_inv       ) TO lt_ztea_docpr_m1_fae .
+      ENDCASE.
+*      поиск из TOA01:
+      APPEND VALUE #( object_id = ls_data-bukrs    && ls_data-belnr_orig_inv && ls_data-gjahr_orig_inv  ) TO lt_toa01_fae .
+      APPEND VALUE #( belnr = ls_data-belnr_inv   bukrs = ls_data-bukrs    gjahr = ls_data-gjahr_orig_inv ) TO lt_bkpf_fae  ."01.07.2021
+*      поиск документов ћћ:
+      IF ls_data-belnr_up IS NOT INITIAL AND ls_data-belnr_up IS NOT INITIAL AND ls_data-gjahr_up IS NOT INITIAL.
+        APPEND VALUE #( belnr = ls_data-belnr_up   bukrs = ls_data-bukrs_up    gjahr = ls_data-gjahr_up ) TO lt_bkpf_fae  .
+      ENDIF.
+
+    ENDLOOP.
+*          документы  выравниваний
+    SORT lt_bse_clr_fae.
+    DELETE ADJACENT DUPLICATES FROM lt_bse_clr_fae.
+    IF lt_bse_clr_fae IS NOT INITIAL.
+      SELECT bukrs_clr belnr_clr gjahr_clr
+          bukrs belnr gjahr
+        FROM bse_clr
+        INTO TABLE lt_bse_clr
+        FOR ALL ENTRIES IN lt_bse_clr_fae
+        WHERE bukrs_clr = lt_bse_clr_fae-bukrs_clr
+          AND belnr_clr = lt_bse_clr_fae-belnr_clr
+          AND gjahr_clr = lt_bse_clr_fae-gjahr_clr
+        %_HINTS ORACLE '&max_in_blocking_factor 500&' .
+      SORT lt_bse_clr.
+
+      LOOP AT lt_bse_clr INTO DATA(ls_bse_clr) .
+        APPEND VALUE #( object_id = ls_bse_clr-bukrs && ls_bse_clr-belnr && ls_bse_clr-gjahr ) TO lt_toa01_fae .
+      ENDLOOP .
+    ENDIF.
+
+*      поиск документов ћћ:
+    SORT lt_bkpf_fae .
+    DELETE ADJACENT DUPLICATES FROM lt_bkpf_fae .
+    IF lt_bkpf_fae  IS NOT INITIAL.
+      SELECT belnr bukrs gjahr awkey
+      FROM bkpf
+      INTO TABLE lt_bkpf
+      FOR ALL ENTRIES IN lt_bkpf_fae
+      WHERE belnr = lt_bkpf_fae-belnr
+      AND bukrs = lt_bkpf_fae-bukrs
+      AND gjahr = lt_bkpf_fae-gjahr
+      AND awtyp = 'RMRP'.
+
+      LOOP AT lt_bkpf INTO DATA(ls_bkpf) .
+        APPEND VALUE #( object_id = ls_bkpf-awkey ) TO lt_toa01_fae .
+        APPEND VALUE #( object_id = ls_bkpf-awkey ) TO lt_ztea_docpr_m1_fae .
+      ENDLOOP .
+    ENDIF.
+
+    SORT lt_ztea_docpr_m1_fae.
+    DELETE ADJACENT DUPLICATES FROM lt_ztea_docpr_m1_fae .
+    IF lt_ztea_docpr_m1_fae IS NOT INITIAL.
+      SELECT arc_doc_id ar_object object_id sap_object
+        FROM ztea_docpr_m
+        INTO TABLE lt_ztea_docpr_m1
+        FOR ALL ENTRIES IN lt_ztea_docpr_m1_fae
+        WHERE object_id = lt_ztea_docpr_m1_fae-object_id
+        %_HINTS ORACLE '&max_in_blocking_factor 500&' .
+      SORT lt_ztea_docpr_m1 BY object_id.
+    ENDIF.
+
+    SORT lt_toa01_fae BY  object_id.
+    DELETE ADJACENT DUPLICATES FROM lt_toa01_fae COMPARING object_id.
+    IF lt_toa01_fae IS NOT INITIAL.
+      SELECT object_id arc_doc_id ar_object sap_object
+        FROM toa01
+        INTO TABLE lt_toa01
+        FOR ALL ENTRIES IN lt_toa01_fae
+        WHERE object_id = lt_toa01_fae-object_id
+        %_HINTS ORACLE '&max_in_blocking_factor 500&' .
+    ENDIF.
+
+    lv_tot_pos = lines(  ms_grid_1-data ).
+    zclcf_prog_ind=>start('ѕќ»—  ID'(032) ).
+    lv_cur_pos = 0.
+
+    LOOP AT  ms_grid_1-data ASSIGNING FIELD-SYMBOL(<ls_data>) .
+
+      CLEAR lr_object_id[].
+      CLEAR lr_ar_object[].
+
+      ADD 1 TO lv_cur_pos.
+
+      IF lv_cur_pos MOD 500 = 0 .
+        zclcf_prog_ind=>cycle(
+        EXPORTING
+         iv_text     = 'ѕќ»—  ID ->'(031)
+         iv_cur_pos  = lv_cur_pos
+         iv_tot_pos  = lv_tot_pos
+         iv_ind_step = 1 ).
+      ENDIF.
+
+      IF <ls_data>-belnr_orig_inv+0(2) = '42' AND <ls_data>-belnr_up+0(2) = '51'.
+        APPEND VALUE #( sign = 'I' option = 'EQ' low = <ls_data>-belnr_up && <ls_data>-gjahr_up ) TO lr_object_id.
+      ENDIF.
+
+      APPEND VALUE #( sign = 'I' option = 'EQ'  low = <ls_data>-bukrs    && <ls_data>-belnr_orig_inv && <ls_data>-gjahr_orig_inv ) TO lr_object_id.
+      APPEND VALUE #( sign = 'I' option = 'EQ'  low = <ls_data>-bukrs    && <ls_data>-belnr_inv      && <ls_data>-gjahr_inv      ) TO lr_object_id.
+
+      READ TABLE lt_bkpf INTO ls_bkpf WITH TABLE KEY belnr = <ls_data>-belnr_up
+                                                     bukrs = <ls_data>-bukrs_up
+                                                     gjahr = <ls_data>-gjahr_up.
+      IF sy-subrc = 0.
+        LOOP AT lt_toa01 INTO DATA(ls_toa01) WHERE object_id  = ls_bkpf-awkey .
+          APPEND VALUE #( arc_doc_id = ls_toa01-arc_doc_id
+                          ar_object  = ls_toa01-ar_object
+                          object_id  = ls_toa01-object_id
+                          sap_object = ls_toa01-sap_object ) TO lt_ztea_docpr_m1.
+          APPEND VALUE #( sign = 'I' option = 'EQ' low = ls_toa01-object_id ) TO lr_object_id.
+        ENDLOOP .
+        LOOP AT lt_ztea_docpr_m1 INTO DATA(ls_ztea_docpr_m1) WHERE object_id  = ls_bkpf-awkey .
+          APPEND VALUE #( sign = 'I' option = 'EQ' low = ls_ztea_docpr_m1-object_id ) TO lr_object_id.
+        ENDLOOP .
+      ENDIF.
+      IF <ls_data>-belnr_orig_inv+0(2) = '11'.
+        LOOP AT lt_bse_clr INTO ls_bse_clr
+          WHERE bukrs_clr  = <ls_data>-bukrs
+            AND belnr_clr = <ls_data>-belnr_orig_inv
+            AND gjahr_clr = <ls_data>-gjahr_orig_inv .
+          APPEND VALUE #( sign = 'I' option = 'EQ' low = ls_bse_clr-bukrs && ls_bse_clr-belnr && ls_bse_clr-gjahr ) TO lr_object_id.
+          LOOP AT lt_toa01 INTO ls_toa01 WHERE object_id  = ls_bse_clr-bukrs && ls_bse_clr-belnr && ls_bse_clr-gjahr .
+            APPEND VALUE #( arc_doc_id = ls_toa01-arc_doc_id
+                            ar_object  = ls_toa01-ar_object
+                            object_id  = ls_toa01-object_id
+                            sap_object = ls_toa01-sap_object ) TO lt_ztea_docpr_m1.
+          ENDLOOP.
+        ENDLOOP.
+      ENDIF.
+      LOOP AT lt_toa01 INTO ls_toa01 WHERE object_id  = <ls_data>-bukrs && <ls_data>-belnr_orig_inv && <ls_data>-gjahr_orig_inv .
+        APPEND VALUE #( arc_doc_id = ls_toa01-arc_doc_id
+                        ar_object  = ls_toa01-ar_object
+                        object_id  = ls_toa01-object_id
+                        sap_object = ls_toa01-sap_object ) TO lt_ztea_docpr_m1.
+        APPEND VALUE #( sign = 'I' option = 'EQ' low = ls_toa01-object_id ) TO lr_object_id.
+      ENDLOOP.
+      LOOP AT lt_toa01 INTO ls_toa01 WHERE object_id  = <ls_data>-belnr_orig_inv && <ls_data>-gjahr_orig_inv . "01.07.2021
+        APPEND VALUE #( arc_doc_id = ls_toa01-arc_doc_id
+                        ar_object  = ls_toa01-ar_object
+                        object_id  = ls_toa01-object_id
+                        sap_object = ls_toa01-sap_object ) TO lt_ztea_docpr_m1.
+        APPEND VALUE #( SIGN = 'I' option = 'EQ' low = ls_toa01-object_id ) TO lr_object_id.
+      ENDLOOP.
+
+      CLEAR lv_sep.
+      lv_poln1 = 0.
+      lv_poln2 = 0.
+      lv_count = 0.
+
+      LOOP AT lt_full_set INTO DATA(ls_full_set) WHERE book      = 'P'
+                                                   AND kbo       = <ls_data>-oper_typ
+                                                   AND num_group = '2' .
+        ADD 1 TO lv_count .
+      ENDLOOP .
+
+      DELETE ADJACENT DUPLICATES FROM lr_object_id COMPARING low.
+
+      LOOP AT lt_ztea_docpr_m1 INTO DATA(ls_arc_doc_id) WHERE object_id IN lr_object_id .
+        APPEND VALUE #( sign = 'I' option = 'EQ' low = ls_arc_doc_id-ar_object  ) TO lr_ar_object .
+        APPEND VALUE #( sign = 'I' option = 'EQ' low = ls_arc_doc_id-sap_object ) TO lr_sap_object.
+        IF lv_sep = ' '.
+          CONCATENATE <ls_data>-zid_sap    ls_arc_doc_id-arc_doc_id INTO <ls_data>-zid_sap .
+          CONCATENATE <ls_data>-zar_object ls_arc_doc_id-ar_object  '(' ls_arc_doc_id-sap_object ')' INTO <ls_data>-zar_object .
+        ELSE.
+          CONCATENATE <ls_data>-zid_sap    ls_arc_doc_id-arc_doc_id INTO <ls_data>-zid_sap    SEPARATED BY lv_sep.
+          CONCATENATE ls_arc_doc_id-ar_object '(' ls_arc_doc_id-sap_object ')'  INTO DATA(lv_str) .
+          CONCATENATE <ls_data>-zar_object lv_str  INTO <ls_data>-zar_object SEPARATED BY lv_sep.
+        ENDIF.
+        lv_sep = ';'.
+
+        READ TABLE lt_full_set INTO ls_full_set WITH TABLE KEY mandt     = sy-mandt
+                                                               book      = 'P'
+                                                               kbo       = <ls_data>-oper_typ
+                                                               ar_object = ls_arc_doc_id-ar_object.
+        IF sy-subrc = 0.
+          IF ls_full_set-num_group = '1' AND ls_full_set-logic_1_group = 'OR'.
+            lv_poln1 = 1.
+          ENDIF.
+          IF ls_full_set-num_group = '2' AND ls_full_set-logic_2_group = 'AND'.
+            lv_poln2 = 1.
+          ENDIF.
+        ELSE.
+*        MESSAGE 'в таблице ztfi_full_set не описаны правила дл€ ' && ls_arc_doc_id-ar_object TYPE 'S'.
+        ENDIF.
+      ENDLOOP.
+      IF sy-subrc <> 0.
+        <ls_data>-zindicator = '»ƒ не найден'(023).
+      ENDIF.
+
+      IF <ls_data>-zindicator <> '»ƒ не найден'(023).
+        IF ( lv_poln1 *  lv_poln2 = 1 )          "есть в 1 группе и есть во 2 группе
+        OR ( lv_poln1 = 1 AND lv_count = 0 ).  "есть в 1, самой второй группы нет
+          <ls_data>-zindicator = 'ѕакет полон'(022).
+        ELSE.
+          <ls_data>-zindicator = 'ѕакет не полон'(021).
+        ENDIF.
+      ENDIF.
+
+      IF lr_ar_object IS NOT INITIAL AND lr_sap_object IS NOT INITIAL.
+        SORT lr_ar_object.
+        SORT lr_sap_object.
+        DELETE ADJACENT DUPLICATES FROM lr_ar_object COMPARING low.
+        DELETE ADJACENT DUPLICATES FROM lr_sap_object COMPARING low.
+
+        SELECT sap_object ar_object title
+        FROM ztea_dochr
+        INTO TABLE lt_ztea_dochr
+        WHERE ar_object  IN lr_ar_object
+          AND sap_object IN lr_sap_object.
+      ENDIF.
+      CLEAR lv_sep.
+      LOOP AT lt_ztea_docpr_m1 INTO DATA(ls_arc_doc_id2) WHERE object_id IN lr_object_id .
+        READ TABLE lt_ztea_dochr INTO DATA(ls_ztea_dochr) WITH TABLE KEY
+                                                            sap_object = ls_arc_doc_id2-sap_object
+                                                            ar_object  = ls_arc_doc_id2-ar_object .
+        IF sy-subrc <> 0.
+
+          IF lv_sep = ' '.
+            <ls_data>-ztitle = '-'.
+          ELSE.
+            CONCATENATE <ls_data>-ztitle '-' INTO <ls_data>-ztitle SEPARATED BY lv_sep.
+          ENDIF.
+        ELSE.
+          IF lv_sep = ' '.
+            CONCATENATE <ls_data>-ztitle     ls_ztea_dochr-title      INTO <ls_data>-ztitle .
+          ELSE.
+            CONCATENATE <ls_data>-ztitle     ls_ztea_dochr-title      INTO <ls_data>-ztitle     SEPARATED BY lv_sep.
+          ENDIF.
+        ENDIF.
+        lv_sep = ';'.
+      ENDLOOP.
+
+
+    ENDLOOP.
+    zclcf_prog_ind=>stop( ).
+    FREE  lt_ztea_docpr_m1.
+  ENDMETHOD .
+
+  METHOD get_arc_doc_id_for_buy_book.             " 7700157078
+
+    CHECK ms_grid_1-data IS NOT INITIAL .
+
+    TYPES: BEGIN OF lt_t_toa01,
+             arc_doc_id TYPE toa01-arc_doc_id,
+             ar_object  TYPE toa01-ar_object,
+             object_id  TYPE toa01-object_id,
+           END OF lt_t_toa01.
+    TYPES: BEGIN OF lt_t_zfsltcase_ard,
+             ext_key_tech TYPE zfsltcase_ard-ext_key_tech,
+             case_guid    TYPE zfsltcase_ard-case_guid,
+           END OF lt_t_zfsltcase_ard.
+    DATA:
+      lt_toa01             TYPE TABLE OF lt_t_toa01,
+      lt_toa01_fae         TYPE TABLE OF lt_t_toa01,
+      lt_zfsltcase_ard     TYPE TABLE OF lt_t_zfsltcase_ard,
+      lt_zfsltcase_ard_fae TYPE TABLE OF lt_t_zfsltcase_ard,
+      lv_sep               TYPE c LENGTH 1 ,
+      lv_text              TYPE zecf_prog_ind_text,
+      lv_tot_pos           TYPE sy-tabix,
+      lv_cur_pos           TYPE sy-tabix.
+
+    LOOP AT ms_grid_1-data INTO DATA(ls_data) .
+      IF ls_data-zuonr IS NOT INITIAL.
+        APPEND VALUE #( ext_key_tech = ls_data-zuonr ) TO  lt_zfsltcase_ard_fae .
+      ENDIF.
+    ENDLOOP.
+
+    SORT lt_zfsltcase_ard_fae .
+    DELETE ADJACENT DUPLICATES FROM lt_zfsltcase_ard_fae .
+    IF lt_zfsltcase_ard_fae  IS NOT INITIAL.
+      SELECT ext_key_tech case_guid
+      FROM zfsltcase_ard
+      INTO TABLE lt_zfsltcase_ard
+      FOR ALL ENTRIES IN lt_zfsltcase_ard_fae
+      WHERE ext_key_tech = lt_zfsltcase_ard_fae-ext_key_tech+0(12)
+      %_HINTS ORACLE '&max_in_blocking_factor 500&'  .
+      SORT lt_zfsltcase_ard.
+      DELETE ADJACENT DUPLICATES FROM lt_zfsltcase_ard .
+
+      LOOP AT lt_zfsltcase_ard INTO DATA(ls_zfsltcase_ard).
+        APPEND VALUE #( object_id = ls_zfsltcase_ard-case_guid ) TO lt_toa01_fae.
+      ENDLOOP.
+    ENDIF.
+
+    IF lt_toa01_fae IS NOT INITIAL.
+      SELECT  arc_doc_id ar_object object_id
+      FROM toa01
+      INTO TABLE lt_toa01
+      FOR ALL ENTRIES IN lt_toa01_fae
+      WHERE object_id = lt_toa01_fae-object_id
+      AND sap_object = 'SCASE'
+      %_HINTS ORACLE '&max_in_blocking_factor 500&' .
+    ENDIF.
+
+    lv_tot_pos = lines(  ms_grid_1-data ).
+    zclcf_prog_ind=>start('ѕќ»—  ARC_DOC_ID '(034) ).
+    lv_cur_pos = 0.
+
+    LOOP AT  ms_grid_1-data ASSIGNING FIELD-SYMBOL(<ls_data>) .
+
+      ADD 1 TO lv_cur_pos.
+      lv_text = 'ѕќ»—  ARC_DOC_ID ->'(035).
+      IF lv_cur_pos MOD 500 = 0 .
+        zclcf_prog_ind=>cycle(
+        EXPORTING
+          iv_text     = lv_text
+          iv_cur_pos  = lv_cur_pos
+          iv_tot_pos  = lv_tot_pos
+          iv_ind_step = 1 ).
+      ENDIF.
+
+      lv_sep = ' '.
+      LOOP AT lt_zfsltcase_ard INTO ls_zfsltcase_ard WHERE ext_key_tech = <ls_data>-zuonr.
+        LOOP AT lt_toa01 INTO DATA(ls_toa01) WHERE object_id = ls_zfsltcase_ard-case_guid.
+          IF lv_sep = ' '.
+            CONCATENATE <ls_data>-arc_doc_id2 ls_toa01-arc_doc_id INTO <ls_data>-arc_doc_id2 .
+          ELSE.
+            CONCATENATE <ls_data>-arc_doc_id2 ls_toa01-arc_doc_id INTO <ls_data>-arc_doc_id2
+              SEPARATED BY lv_sep.
+          ENDIF.
+          lv_sep = ';'.
+        ENDLOOP.
+      ENDLOOP.
+
+    ENDLOOP.
+    zclcf_prog_ind=>stop( ).
+
+  ENDMETHOD .
+
+  METHOD get_arc_doc_id_for_sell_book.            " 7700157078   Ќ»√ј ѕ–ќƒј∆
+
+    CHECK ms_grid_3-data IS NOT INITIAL .
+
+    TYPES: BEGIN OF lt_t_toa01,
+             arc_doc_id TYPE toa01-arc_doc_id,
+             ar_object  TYPE toa01-ar_object,
+             object_id  TYPE toa01-object_id,
+           END OF lt_t_toa01.
+    TYPES: BEGIN OF lt_t_zfsltcase_ard,
+             ext_key_tech TYPE zfsltcase_ard-ext_key_tech,
+             case_guid    TYPE zfsltcase_ard-case_guid,
+           END OF lt_t_zfsltcase_ard.
+    DATA:
+      lt_toa01             TYPE TABLE OF lt_t_toa01,
+      lt_toa01_fae         TYPE TABLE OF lt_t_toa01,
+      lt_zfsltcase_ard     TYPE TABLE OF lt_t_zfsltcase_ard,
+      lt_zfsltcase_ard_fae TYPE TABLE OF lt_t_zfsltcase_ard,
+      lv_sep               TYPE c LENGTH 1 ,
+      lv_text              TYPE zecf_prog_ind_text,
+      lv_tot_pos           TYPE sy-tabix,
+      lv_cur_pos           TYPE sy-tabix.
+
+    LOOP AT ms_grid_3-data INTO DATA(ls_data) .
+      IF ls_data-zuonr IS NOT INITIAL.
+        APPEND VALUE #( ext_key_tech = ls_data-zuonr ) TO  lt_zfsltcase_ard_fae .
+      ENDIF.
+    ENDLOOP.
+
+    SORT lt_zfsltcase_ard_fae .
+    DELETE ADJACENT DUPLICATES FROM lt_zfsltcase_ard_fae .
+    IF lt_zfsltcase_ard_fae  IS NOT INITIAL.
+      SELECT ext_key_tech case_guid
+        FROM zfsltcase_ard
+        INTO TABLE lt_zfsltcase_ard
+        FOR ALL ENTRIES IN lt_zfsltcase_ard_fae
+        WHERE ext_key_tech = lt_zfsltcase_ard_fae-ext_key_tech+0(12)
+        %_HINTS ORACLE '&max_in_blocking_factor 500&'  .
+      SORT lt_zfsltcase_ard.
+      DELETE ADJACENT DUPLICATES FROM lt_zfsltcase_ard .
+
+      LOOP AT lt_zfsltcase_ard INTO DATA(ls_zfsltcase_ard).
+        APPEND VALUE #( object_id = ls_zfsltcase_ard-case_guid ) TO lt_toa01_fae.
+      ENDLOOP.
+    ENDIF.
+
+    IF lt_toa01_fae IS NOT INITIAL.
+      SELECT  arc_doc_id ar_object object_id
+      FROM toa01
+      INTO TABLE lt_toa01
+      FOR ALL ENTRIES IN lt_toa01_fae
+      WHERE object_id = lt_toa01_fae-object_id
+        AND sap_object = 'SCASE'
+      %_HINTS ORACLE '&max_in_blocking_factor 500&' .
+    ENDIF.
+
+    lv_tot_pos = lines(  ms_grid_3-data ).
+    zclcf_prog_ind=>start('ѕќ»—  ARC_DOC_ID '(034) ).
+    lv_cur_pos = 0.
+
+    LOOP AT  ms_grid_3-data ASSIGNING FIELD-SYMBOL(<ls_data>) .
+
+      ADD 1 TO lv_cur_pos.
+      lv_text = 'ѕќ»—  ARC_DOC_ID ->'(035).
+      IF lv_cur_pos MOD 500 = 0 .
+        zclcf_prog_ind=>cycle(
+        EXPORTING
+          iv_text     = lv_text
+          iv_cur_pos  = lv_cur_pos
+          iv_tot_pos  = lv_tot_pos
+          iv_ind_step = 1 ).
+      ENDIF.
+
+      lv_sep = ' '.
+      LOOP AT lt_zfsltcase_ard INTO ls_zfsltcase_ard WHERE ext_key_tech = <ls_data>-zuonr.
+        LOOP AT lt_toa01 INTO DATA(ls_toa01) WHERE object_id = ls_zfsltcase_ard-case_guid.
+          IF lv_sep = ' '.
+            CONCATENATE <ls_data>-arc_doc_id2    ls_toa01-arc_doc_id INTO <ls_data>-arc_doc_id2 .
+          ELSE.
+            CONCATENATE <ls_data>-arc_doc_id2    ls_toa01-arc_doc_id INTO <ls_data>-arc_doc_id2
+              SEPARATED BY lv_sep.
+          ENDIF.
+          lv_sep = ';'.
+        ENDLOOP.
+      ENDLOOP.
+
+    ENDLOOP.
+    zclcf_prog_ind=>stop( ).
+  ENDMETHOD .
+  METHOD get_id_sap_for_sell_book.                                     "  Ќ»√ј ѕ–ќƒј∆
+
+    CHECK ms_grid_3-data IS NOT INITIAL .
+
+    TYPES: BEGIN OF lt_t_ztea_docpr_m,
+             arc_doc_id TYPE ztea_docpr_m-arc_doc_id,
+             ar_object  TYPE ztea_docpr_m-ar_object,
+             object_id  TYPE ztea_docpr_m-object_id,
+             sap_object TYPE ztea_docpr_m-sap_object,
+           END OF lt_t_ztea_docpr_m.
+    TYPES: BEGIN OF lt_t_bkpf,
+             belnr TYPE bkpf-belnr,
+             bukrs TYPE bkpf-bukrs,
+             gjahr TYPE bkpf-gjahr,
+             awtyp TYPE bkpf-awtyp,
+             awkey TYPE bkpf-awkey,
+             xblnr TYPE bkpf-xblnr,
+           END OF lt_t_bkpf.
+    TYPES: BEGIN OF lt_t_toa01,
+             object_id  TYPE toa01-object_id,
+             arc_doc_id TYPE toa01-arc_doc_id,
+             ar_object  TYPE toa01-ar_object,
+             sap_object TYPE toa01-sap_object,
+           END OF lt_t_toa01.
+    TYPES: BEGIN OF lt_t_ztea_barcodes,
+*             bukrs           TYPE ztea_barcodes-bukrs,
+             object_type TYPE ztea_barcodes-object_type,
+             object_id   TYPE ztea_barcodes-object_id,
+             ar_object   TYPE ztea_barcodes-ar_object,
+*             documentnumber  TYPE ztea_barcodes-documentnumber,
+*             documentdate    TYPE ztea_barcodes-documentdate,
+*             sea_papernumber TYPE ztea_barcodes-sea_papernumber,
+*             sea_paperdate   TYPE ztea_barcodes-sea_paperdate,
+           END OF lt_t_ztea_barcodes.
+    TYPES: BEGIN OF lt_t_ztea_dochr,
+             sap_object TYPE ztea_dochr-sap_object,
+             ar_object  TYPE ztea_dochr-ar_object,
+             title      TYPE ztea_dochr-title,
+           END OF lt_t_ztea_dochr.
+    DATA :
+      lt_ztea_docpr_m      TYPE TABLE OF lt_t_ztea_docpr_m,
+      lt_ztea_docpr_m1_fae TYPE TABLE OF lt_t_ztea_docpr_m,
+      lt_ztea_barcodes     TYPE TABLE OF lt_t_ztea_barcodes,
+      lt_ztea_barcodes_fae TYPE TABLE OF lt_t_ztea_barcodes,
+      lt_bkpf              TYPE SORTED TABLE OF lt_t_bkpf WITH UNIQUE KEY primary_key
+                           COMPONENTS belnr bukrs gjahr,
+      lt_bkpf_fae          TYPE TABLE OF lt_t_bkpf ,
+      lt_toa01             TYPE TABLE OF lt_t_toa01 ,
+      lt_toa01_fae         TYPE TABLE OF lt_t_toa01 ,
+      lt_ztea_dochr        TYPE SORTED TABLE OF lt_t_ztea_dochr WITH UNIQUE KEY primary_key
+                                       COMPONENTS sap_object ar_object,
+      lv_sep               TYPE c LENGTH 1 ,
+      lv_text              TYPE zecf_prog_ind_text,
+      lv_poln1             TYPE i ,
+      lv_count             TYPE i ,
+      lv_poln2             TYPE i ,
+      lt_full_set          TYPE SORTED TABLE OF ztfi_full_set WITH UNIQUE KEY primary_key
+                           COMPONENTS mandt
+                                     book
+                                     kbo
+                                     ar_object,
+      lv_tot_pos           TYPE sy-tabix,
+      lv_cur_pos           TYPE sy-tabix,
+      lr_object_id         TYPE RANGE OF ztea_docpr_m-object_id,
+      lr_ar_object         TYPE RANGE OF ztea_dochr-ar_object,
+      lr_sap_object        TYPE RANGE OF ztea_dochr-sap_object,
+      lv_arc_doc_id        TYPE toa01-arc_doc_id,
+      lv_object_id         TYPE toa01-object_id,
+      lv_ar_object         TYPE toa01-ar_object.
+
+    SELECT *
+      FROM ztfi_full_set
+      INTO TABLE lt_full_set
+      WHERE book = 'S'.
+
+    LOOP AT  ms_grid_3-data INTO DATA(ls_data) .
+      CASE ls_data-belnr_orig_inv+0(2).
+*        WHEN '11'.
+*        WHEN '42'.
+        WHEN OTHERS.
+          APPEND VALUE #( object_id = ls_data-bukrs    && ls_data-belnr_orig_inv && ls_data-gjahr_orig_inv ) TO lt_ztea_docpr_m1_fae .
+          APPEND VALUE #( object_id = ls_data-bukrs    && ls_data-belnr_inv      && ls_data-gjahr_inv      ) TO lt_ztea_docpr_m1_fae .
+          IF ls_data-gjahr_up IS NOT INITIAL.
+            APPEND VALUE #( object_id = ls_data-belnr_up  && ls_data-gjahr_up       ) TO lt_ztea_docpr_m1_fae .
+*      APPEND VALUE #( object_id = ls_data-bukrs_up && ls_data-belnr_up       && ls_data-gjahr_up       ) TO lt_ztea_docpr_m1_fae .
+          ENDIF.
+
+*      поиск из TOA01:
+          IF ls_data-belnr_orig_inv IS NOT INITIAL.
+            APPEND VALUE #( object_id = ls_data-bukrs    && ls_data-belnr_orig_inv && ls_data-gjahr_orig_inv  ) TO lt_toa01_fae .
+          ENDIF.
+*          по экспортным инвойсам - не ищем, т.к. руками мен€ют в экстракте
+*          IF ls_data-xblnr_inv IS NOT INITIAL.
+*            APPEND VALUE #( object_id = ls_data-xblnr_inv ) TO lt_toa01_fae .
+*          ENDIF.
+*      поиск документов ћћ:
+          IF ls_data-belnr_inv IS NOT INITIAL.
+            APPEND VALUE #( belnr = ls_data-belnr_inv bukrs = ls_data-bukrs  gjahr = ls_data-gjahr_inv       ) TO lt_bkpf_fae  .
+          ENDIF.
+      ENDCASE.
+      IF ls_data-bukrs = '1700' AND ls_data-belnr_inv IS NOT INITIAL.
+        APPEND VALUE #( object_id = ls_data-bukrs && ls_data-belnr_inv && ls_data-gjahr_inv
+*                        documentnumber  = ls_data-belnr_inv
+*                        documentdate    = ls_data-budat_inv
+*                        sea_papernumber = ls_data-xblnr_inv
+*                         sea_paperdate   = ls_data-
+                        ) TO lt_ztea_barcodes_fae .
+      ENDIF.
+    ENDLOOP.
+
+    SORT lt_ztea_barcodes_fae.
+    DELETE ADJACENT DUPLICATES FROM lt_ztea_barcodes_fae .
+    IF lt_ztea_barcodes_fae IS NOT INITIAL.
+      SELECT
+        object_type
+        object_id "
+        ar_object
+*        documentnumber
+*        documentdate
+*        sea_papernumber
+*        sea_paperdate
+      FROM ztea_barcodes
+      INTO TABLE lt_ztea_barcodes
+      FOR ALL ENTRIES IN lt_ztea_barcodes_fae
+      WHERE object_id = lt_ztea_barcodes_fae-object_id
+*        documentnumber  = lt_ztea_barcodes_fae-documentnumber
+*        AND documentdate    = lt_ztea_barcodes_fae-documentdate
+*        AND sea_papernumber = lt_ztea_barcodes_fae-sea_papernumber
+      %_HINTS ORACLE '&max_in_blocking_factor 500&'  .
+      SORT lt_ztea_barcodes.
+
+      LOOP AT lt_ztea_barcodes INTO DATA(ls_ztea_barcodes) .
+        APPEND VALUE #( object_id  = ls_ztea_barcodes-object_id
+                        ar_object  = ls_ztea_barcodes-ar_object
+                        sap_object = ls_ztea_barcodes-object_type  ) TO lt_toa01_fae.
+      ENDLOOP.
+    ENDIF.
+
+    SORT lt_bkpf_fae .
+    DELETE ADJACENT DUPLICATES FROM lt_bkpf_fae .
+    IF lt_bkpf_fae IS NOT INITIAL.
+      SELECT belnr bukrs gjahr awtyp awkey xblnr
+      FROM bkpf
+      INTO TABLE lt_bkpf
+      FOR ALL ENTRIES IN lt_bkpf_fae
+      WHERE belnr = lt_bkpf_fae-belnr
+      AND bukrs = lt_bkpf_fae-bukrs
+      AND gjahr = lt_bkpf_fae-gjahr
+      AND awtyp = 'VBRK'.
+
+      LOOP AT lt_bkpf INTO DATA(ls_bkpf) .
+        IF ls_bkpf-awkey IS NOT INITIAL.
+          APPEND VALUE #( object_id = ls_bkpf-awkey ) TO lt_toa01_fae .
+          APPEND VALUE #( object_id = ls_bkpf-awkey ) TO lt_ztea_docpr_m1_fae .
+*        ELSE.
+        ENDIF.
+*          по экспортным инвойсам
+        IF ls_bkpf-xblnr IS NOT INITIAL.
+          APPEND VALUE #( object_id = ls_bkpf-xblnr ) TO lt_toa01_fae .
+          APPEND VALUE #( object_id = ls_bkpf-xblnr ) TO lt_ztea_docpr_m1_fae .
+        ENDIF.
+      ENDLOOP .
+    ENDIF.
+
+    SORT lt_ztea_docpr_m1_fae.
+    DELETE ADJACENT DUPLICATES FROM lt_ztea_docpr_m1_fae .
+    DELETE lt_ztea_docpr_m1_fae WHERE object_id = '0000'.
+    IF lt_ztea_docpr_m1_fae IS NOT INITIAL.
+      SELECT arc_doc_id ar_object object_id sap_object
+      FROM ztea_docpr_m
+      INTO TABLE lt_ztea_docpr_m
+      FOR ALL ENTRIES IN lt_ztea_docpr_m1_fae
+      WHERE object_id = lt_ztea_docpr_m1_fae-object_id
+        %_HINTS ORACLE '&max_in_blocking_factor 500&'  .
+      SORT lt_ztea_docpr_m BY object_id.
+    ENDIF.
+
+    SORT lt_toa01_fae.
+    DELETE ADJACENT DUPLICATES FROM lt_toa01_fae.
+    IF lt_toa01_fae IS NOT INITIAL.
+      SELECT object_id arc_doc_id ar_object sap_object
+        FROM toa01
+        INTO TABLE lt_toa01
+        FOR ALL ENTRIES IN lt_toa01_fae
+        WHERE object_id = lt_toa01_fae-object_id
+        %_HINTS ORACLE '&max_in_blocking_factor 500&' .
+    ENDIF.
+
+    lv_tot_pos = lines(  ms_grid_3-data ).
+    zclcf_prog_ind=>start('ѕќ»—  ID '(032) ).
+    lv_cur_pos = 0.
+
+    LOOP AT  ms_grid_3-data ASSIGNING FIELD-SYMBOL(<ls_data>) .
+
+      CLEAR lr_object_id.
+      CLEAR lr_ar_object[].
+
+      ADD 1 TO lv_cur_pos.
+
+      IF lv_cur_pos MOD 500 = 0 .
+        zclcf_prog_ind=>cycle(
+        EXPORTING
+          iv_text     = 'ѕќ»—  ID ->'(031)
+          iv_cur_pos  = lv_cur_pos
+          iv_tot_pos  = lv_tot_pos
+          iv_ind_step = 1 ).
+      ENDIF.
+
+      IF <ls_data>-belnr_up IS NOT INITIAL.
+        APPEND VALUE #( sign = 'I' option = 'EQ' low = <ls_data>-belnr_up  && <ls_data>-gjahr_up  ) TO lr_object_id.
+      ENDIF.
+      IF <ls_data>-belnr_inv IS NOT INITIAL.
+        APPEND VALUE #( sign = 'I' option = 'EQ' low = <ls_data>-bukrs    && <ls_data>-belnr_inv && <ls_data>-gjahr_inv ) TO lr_object_id.
+      ENDIF.
+
+      READ TABLE lt_bkpf INTO ls_bkpf WITH TABLE KEY belnr = <ls_data>-belnr_inv
+                                                     bukrs = <ls_data>-bukrs
+                                                     gjahr = <ls_data>-gjahr_inv.
+      IF sy-subrc = 0.
+        LOOP AT lt_toa01 INTO DATA(ls_toa01) WHERE object_id  = ls_bkpf-awkey .
+          APPEND VALUE #( arc_doc_id = ls_toa01-arc_doc_id
+                          ar_object  = ls_toa01-ar_object
+                          object_id  = ls_toa01-object_id
+                          sap_object = ls_toa01-sap_object  ) TO lt_ztea_docpr_m.
+          APPEND VALUE #( sign = 'I' option = 'EQ' low = ls_toa01-object_id ) TO lr_object_id.
+        ENDLOOP .
+*        по экспортным инвойсам
+        LOOP AT lt_toa01 INTO ls_toa01 WHERE object_id  = ls_bkpf-xblnr .
+          APPEND VALUE #( arc_doc_id = ls_toa01-arc_doc_id
+                          ar_object  = ls_toa01-ar_object
+                          object_id  = ls_toa01-object_id
+                          sap_object = ls_toa01-sap_object ) TO lt_ztea_docpr_m.
+          APPEND VALUE #( sign = 'I' option = 'EQ' low = ls_toa01-object_id ) TO lr_object_id.
+        ENDLOOP .
+
+      ENDIF.
+
+      IF <ls_data>-bukrs = '1700'.
+        LOOP AT lt_toa01 INTO ls_toa01 WHERE object_id  = <ls_data>-bukrs && <ls_data>-belnr_inv && <ls_data>-gjahr_inv.
+          APPEND VALUE #( arc_doc_id = ls_toa01-arc_doc_id
+                          ar_object  = ls_toa01-ar_object
+                          object_id  = ls_toa01-object_id
+                          sap_object = ls_toa01-sap_object ) TO lt_ztea_docpr_m.
+          APPEND VALUE #( sign = 'I' option = 'EQ' low = ls_toa01-object_id ) TO lr_object_id.
+        ENDLOOP.
+      ENDIF.
+
+      LOOP AT lt_toa01 INTO ls_toa01 WHERE object_id  = <ls_data>-bukrs && <ls_data>-belnr_orig_inv && <ls_data>-gjahr_orig_inv .
+        APPEND VALUE #( arc_doc_id = ls_toa01-arc_doc_id
+                        ar_object  = ls_toa01-ar_object
+                        object_id  = ls_toa01-object_id
+                        sap_object = ls_toa01-sap_object ) TO lt_ztea_docpr_m.
+        APPEND VALUE #( sign = 'I' option = 'EQ' low = ls_toa01-object_id ) TO lr_object_id.
+      ENDLOOP.
+*по экспортным инвойсам
+*      LOOP AT lt_toa01 INTO ls_toa01 WHERE object_id  = <ls_data>-xblnr_inv .
+*        APPEND VALUE #( arc_doc_id = ls_toa01-arc_doc_id ar_object = ls_toa01-ar_object object_id = ls_toa01-object_id ) TO lt_ztea_docpr_m.
+*        APPEND VALUE #( sign = 'I' option = 'EQ' low = ls_toa01-object_id ) TO lr_object_id.
+*      ENDLOOP.
+
+
+
+      CLEAR lv_sep.
+      lv_poln1 = 0.
+      lv_poln2 = 0.
+
+      lv_count = 0.
+
+      LOOP AT lt_full_set INTO DATA(ls_full_set) WHERE book = 'S'
+            AND kbo       = <ls_data>-oper_typ
+            AND num_group = '2' .
+        ADD 1 TO lv_count .
+      ENDLOOP .
+
+      DELETE ADJACENT DUPLICATES FROM lr_object_id COMPARING low.
+
+      LOOP AT lt_ztea_docpr_m INTO DATA(ls_arc_doc_id) WHERE object_id IN lr_object_id.
+        APPEND VALUE #( sign = 'I' option = 'EQ' low = ls_arc_doc_id-ar_object  ) TO lr_ar_object .
+        APPEND VALUE #( sign = 'I' option = 'EQ' low = ls_arc_doc_id-sap_object ) TO lr_sap_object.
+        IF lv_sep = ' '.
+          CONCATENATE <ls_data>-zid_sap    ls_arc_doc_id-arc_doc_id INTO <ls_data>-zid_sap .
+          CONCATENATE <ls_data>-zar_object ls_arc_doc_id-ar_object  '(' ls_arc_doc_id-sap_object ')' INTO <ls_data>-zar_object .
+        ELSE.
+          CONCATENATE <ls_data>-zid_sap    ls_arc_doc_id-arc_doc_id INTO <ls_data>-zid_sap    SEPARATED BY lv_sep.
+          CONCATENATE ls_arc_doc_id-ar_object '(' ls_arc_doc_id-sap_object ')'  INTO DATA(lv_str2) .
+          CONCATENATE <ls_data>-zar_object lv_str2 INTO <ls_data>-zar_object SEPARATED BY lv_sep.
+        ENDIF.
+        lv_sep = ';'.
+
+        READ TABLE lt_full_set INTO ls_full_set WITH TABLE KEY
+                                                                     mandt     = sy-mandt
+                                                                     book      = 'S'
+                                                                     kbo       = <ls_data>-oper_typ
+                                                                     ar_object = ls_arc_doc_id-ar_object.
+        IF sy-subrc = 0.
+          IF ls_full_set-num_group = '1' AND ls_full_set-logic_1_group = 'OR'.
+            lv_poln1 = 1.
+          ENDIF.
+          IF ls_full_set-num_group = '2' AND ls_full_set-logic_2_group = 'AND'.
+            lv_poln2 = 1.
+          ENDIF.
+        ELSE.
+*        MESSAGE 'в таблице ztfi_full_set не описаны правила дл€ ' && ls_arc_doc_id-ar_object TYPE 'S'.
+        ENDIF.
+      ENDLOOP.
+      IF sy-subrc <> 0.
+        <ls_data>-zindicator = '»ƒ не найден'(023).
+      ENDIF.
+
+      IF <ls_data>-zindicator <> '»ƒ не найден'(023).
+        IF ( lv_poln1 *  lv_poln2 = 1 )          "есть в 1 группе и есть во 2 группе
+          OR ( lv_poln1 = 1 AND lv_count = 0 ).  "есть в 1, самой второй группы нет
+          <ls_data>-zindicator = 'ѕакет полон:'(022).
+        ELSE.
+          <ls_data>-zindicator = 'ѕакет не полон:'(021).
+        ENDIF.
+      ENDIF.
+
+      IF lr_ar_object IS NOT INITIAL AND lr_sap_object IS NOT INITIAL.
+        SORT lr_ar_object.
+        SORT lr_sap_object.
+        DELETE ADJACENT DUPLICATES FROM lr_ar_object COMPARING low.
+        DELETE ADJACENT DUPLICATES FROM lr_sap_object COMPARING low.
+
+        SELECT sap_object ar_object title
+          FROM ztea_dochr
+          INTO TABLE lt_ztea_dochr
+          WHERE ar_object  IN lr_ar_object
+            AND sap_object IN lr_sap_object.
+      ENDIF.
+      CLEAR lv_sep.
+      LOOP AT lt_ztea_docpr_m INTO DATA(ls_arc_doc_id2) WHERE object_id IN lr_object_id .
+        READ TABLE lt_ztea_dochr INTO DATA(ls_ztea_dochr) WITH TABLE KEY
+              sap_object = ls_arc_doc_id2-sap_object
+              ar_object  = ls_arc_doc_id2-ar_object .
+        IF sy-subrc <> 0.
+
+          IF lv_sep = ' '.
+            <ls_data>-ztitle = '-'.
+          ELSE.
+            CONCATENATE <ls_data>-ztitle '-' INTO <ls_data>-ztitle SEPARATED BY lv_sep.
+          ENDIF.
+        ELSE.
+          IF lv_sep = ' '.
+            CONCATENATE <ls_data>-ztitle ls_ztea_dochr-title INTO <ls_data>-ztitle .
+          ELSE.
+            CONCATENATE <ls_data>-ztitle ls_ztea_dochr-title INTO <ls_data>-ztitle SEPARATED BY lv_sep.
+          ENDIF.
+        ENDIF.
+        lv_sep = ';'.
+      ENDLOOP.
+
+    ENDLOOP.
+
+    zclcf_prog_ind=>stop( ).
+    FREE  lt_ztea_docpr_m.
+
+  ENDMETHOD .
